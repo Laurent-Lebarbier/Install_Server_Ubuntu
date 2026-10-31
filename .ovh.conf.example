@@ -1,0 +1,13 @@
+# .ovh.conf.example — identifiants API OVH pour update_dkim_ovh.sh
+#
+# Facultatif : si server.conf contient déjà OVH_APP_KEY / OVH_APP_SECRET /
+# OVH_CONSUMER_KEY (posés par install_dns_ovh.sh), ce fichier est inutile.
+#
+# Sinon, copiez-le dans le dossier personnel de l'utilisateur :
+#   cp .ovh.conf.example ~/.ovh.conf && chmod 600 ~/.ovh.conf
+# puis remplissez les valeurs (https://eu.api.ovh.com/createApp/).
+# NE JAMAIS versionner ~/.ovh.conf (il est exclu par le .gitignore).
+
+OVH_AK=""   # Application Key
+OVH_AS=""   # Application Secret
+OVH_CK=""   # Consumer Key (droits /domain/zone/* suffisent)

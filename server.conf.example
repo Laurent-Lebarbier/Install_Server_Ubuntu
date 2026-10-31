@@ -1,0 +1,69 @@
+# server.conf.example — À TITRE INDICATIF UNIQUEMENT
+#
+# Ce projet n'utilise PAS de fichier .env : toute la configuration est
+# recueillie de façon interactive par install.sh (questions posées au
+# démarrage), puis sauvegardée automatiquement dans server.conf
+# (chmod 600, exclu du .gitignore). Les sous-scripts (install_lamp.sh,
+# install_mail.sh, install_ftp.sh) lisent ensuite ce fichier.
+#
+# Vous n'avez rien à copier ni à remplir manuellement : ce fichier
+# documente simplement le format généré, pour référence.
+
+DOMAIN="exemple.fr"
+HOSTNAME_MAIL="mail.exemple.fr"
+SYS_USER="admin"
+SYS_PASS="mot_de_passe_système_min_12_caracteres"
+DB_NAME="admin_db"
+DB_USER="admin"
+DB_PASS="mot_de_passe_mariadb"
+ADMIN_EMAIL="admin@exemple.fr"
+SERVER_IP="203.0.113.10"
+
+# Ajoutée automatiquement par install_mail.sh lors de la création
+# de la base de messagerie virtuelle (vmail) :
+VMAIL_DB_PASS="mot_de_passe_genere_aleatoirement"
+
+# Ajoutées automatiquement par install_wordpress.sh :
+WP_DB_NAME="admin_db_wp"
+WP_DB_USER="admin_wp"
+WP_DB_PASS="mot_de_passe_genere_aleatoirement"
+WP_ADMIN_USER="wpadmin"
+WP_ADMIN_PASS="mot_de_passe_genere_aleatoirement"
+
+# Ajoutées par install_dns_ovh.sh (clés API OVH, droits limités au DNS) —
+# restaurées avec le reste par « restore_server.sh prepare » :
+OVH_APP_KEY="cle_application"
+OVH_APP_SECRET="secret_application"
+OVH_CONSUMER_KEY="cle_consommateur_validee"
+
+# Rôle du serveur, choisi par install.sh : "web" (VPS : sites + mail + FTP)
+# ou "cloud" (dédié : Nextcloud + Immich, sans mail ni FTP)
+SERVER_ROLE="web"
+
+# --- Serveur cloud (install_cloud.sh) ---------------------------------------
+# Modifiables AVANT la première installation :
+NC_SUB="cloud"                       # → https://cloud.exemple.fr
+IMMICH_SUB="photos"                  # → https://photos.exemple.fr
+NC_DATA_DIR="/srv/nextcloud/data"
+IMMICH_DIR="/opt/immich"             # docker-compose.yml + .env
+IMMICH_DATA="/srv/immich"            # photos (library) + base (postgres)
+# Ajoutées automatiquement :
+NC_DB_NAME="nextcloud"
+NC_DB_USER="nextcloud"
+NC_DB_PASS="mot_de_passe_genere_aleatoirement"
+NC_ADMIN_USER="admin"
+NC_ADMIN_PASS="mot_de_passe_genere_aleatoirement"
+IMMICH_DB_PASS="mot_de_passe_genere_aleatoirement"
+IMMICH_ADMIN_EMAIL="admin@exemple.fr"
+IMMICH_ADMIN_PASS="mot_de_passe_genere_aleatoirement"
+# Relais SMTP des alertes (compte créé sur le VPS avec manage_mail.sh) :
+RELAY_HOST="mail.exemple.fr"
+RELAY_PORT="587"
+RELAY_USER="alertes@exemple.fr"
+RELAY_PASS="mot_de_passe_du_compte_mail"
+
+# --- Sauvegarde croisée (backup_remote.sh configurer) -----------------------
+BACKUP_REMOTE_NAME="web-exemple.fr"  # dossier de dépôt sur l'autre serveur
+BACKUP_REMOTE_HOST="198.51.100.20"   # IP de l'autre serveur
+BACKUP_REMOTE_PORT="22"
+# BACKUP_LOCAL_KEEP="3"              # archives gardées localement (défaut 3)

@@ -1,0 +1,26 @@
+# Fichiers sensibles — NE JAMAIS VERSIONNER
+server.conf
+.ovh.conf
+*.pem
+*.key
+*.env
+.env
+
+# Sauvegardes
+*.bak.*
+*.bak
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+
+# Sauvegardes du serveur et de la zone DNS (contiennent des secrets)
+server_backup_*
+dns_backup_*.json

@@ -451,7 +451,7 @@ cmd_restore() {
     # --- Bilan --------------------------------------------------------------------
     log STEP "Restauration terminée"
     echo -e "  ${BOLD}À faire :${RESET}"
-    if [[ "${SERVER_ROLE:-web}" == "cloud" ]]; then
+    if [[ "${SERVER_ROLE:-web}" != "web" ]]; then
         (( ssl_ok )) || echo -e "  • Certificats : ${BOLD}sudo bash $0 ssl${RESET} une fois le DNS propagé"
         echo -e "  • Réappliquer les réglages Nextcloud / Immich (VirtualHosts, cron, cache) :"
         echo -e "      ${BOLD}sudo bash ${SCRIPT_DIR}/install_cloud.sh tout${RESET}"

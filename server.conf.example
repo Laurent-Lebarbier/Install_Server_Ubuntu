@@ -36,8 +36,9 @@ OVH_APP_KEY="cle_application"
 OVH_APP_SECRET="secret_application"
 OVH_CONSUMER_KEY="cle_consommateur_validee"
 
-# Rôle du serveur, choisi par install.sh : "web" (VPS : sites + mail + FTP)
-# ou "cloud" (dédié : Nextcloud + Immich, sans mail ni FTP)
+# Rôle du serveur, choisi par install.sh : "web" (VPS : sites + mail + FTP),
+# "cloud" (dédié : Nextcloud + Immich, sans mail ni FTP) ou "complet"
+# (un seul serveur : tout ce qui précède sur la même machine)
 SERVER_ROLE="web"
 
 # --- Serveur cloud (install_cloud.sh) ---------------------------------------

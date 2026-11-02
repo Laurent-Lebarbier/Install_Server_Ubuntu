@@ -97,7 +97,7 @@ nc_fqdn()  { echo "${NC_SUB}.${DOMAIN}"; }
 nc_dir()   { echo "/var/www/$(nc_fqdn)/public_html"; }
 imm_fqdn() { echo "${IMMICH_SUB}.${DOMAIN}"; }
 
-if [[ "${SERVER_ROLE:-web}" != "cloud" ]]; then
+if [[ "${SERVER_ROLE:-web}" == "web" ]]; then
     log WARN "server.conf indique le rôle « ${SERVER_ROLE:-web} » (serveur web + mail)."
     log WARN "Ce script est prévu pour le serveur cloud (rôle « cloud » choisi dans install.sh)."
     confirm "Continuer quand même sur ce serveur ?" || exit 0
@@ -580,6 +580,13 @@ INI
         occ config:system:set mail_from_address --value="${RELAY_USER%@*}" >/dev/null
         occ config:system:set mail_domain --value="${RELAY_USER#*@}" >/dev/null
         log OK "Mails Nextcloud envoyés via ${RELAY_USER}."
+    elif dpkg -s postfix &>/dev/null; then
+        # Rôle « complet » : Postfix tourne sur cette machine, envoi en local
+        occ config:system:set mail_smtpmode --value="sendmail" >/dev/null
+        occ config:system:set mail_sendmailmode --value="smtp" >/dev/null
+        occ config:system:set mail_from_address --value="nextcloud" >/dev/null
+        occ config:system:set mail_domain --value="${DOMAIN}" >/dev/null
+        log OK "Mails Nextcloud envoyés par le Postfix local (nextcloud@${DOMAIN})."
     else
         log INFO "Mails Nextcloud non configurés (étape « alertes » non faite)."
     fi

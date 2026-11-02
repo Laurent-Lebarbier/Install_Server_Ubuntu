@@ -53,7 +53,7 @@ banner() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "  ╔══════════════════════════════════════════════════════════╗"
-    echo "  ║         🚀  Install Server Ubuntu  v2.1                  ║"
+    echo "  ║         🚀  Install Server Ubuntu  v2.2                  ║"
     echo "  ║         Configuration complète & sécurisée               ║"
     echo "  ╚══════════════════════════════════════════════════════════╝"
     echo -e "${RESET}"
@@ -132,11 +132,14 @@ collect_config() {
     echo -e "     ${CYAN}[1]${RESET} Web + mail  (VPS : sites, WordPress, mail, FTP)"
     echo -e "     ${CYAN}[2]${RESET} Cloud       (dédié : Nextcloud + Immich, sans mail ni FTP —"
     echo -e "                   le mail du domaine reste sur le serveur web)"
+    echo -e "     ${CYAN}[3]${RESET} Complet     (un seul dédié : sites, WordPress, mail, FTP"
+    echo -e "                   + Nextcloud + Immich — remplace VPS + dédié)"
     local role_choice
     read -rp "$(echo -e "  ${CYAN}Rôle [1] : ${RESET}")" role_choice
     case "${role_choice:-1}" in
-        2|cloud) SERVER_ROLE="cloud" ;;
-        *)       SERVER_ROLE="web" ;;
+        2|cloud)   SERVER_ROLE="cloud" ;;
+        3|complet) SERVER_ROLE="complet" ;;
+        *)         SERVER_ROLE="web" ;;
     esac
 
     # --- Nom de domaine ---
@@ -220,7 +223,7 @@ collect_config() {
     echo    "  └─────────────────────────────────────────┘${RESET}"
     echo -e "  Rôle            : ${BOLD}${SERVER_ROLE}${RESET}"
     echo -e "  Domaine         : ${BOLD}${DOMAIN}${RESET}"
-    [[ "$SERVER_ROLE" == "web" ]] && echo -e "  Hostname mail   : ${BOLD}mail.${DOMAIN}${RESET}"
+    [[ "$SERVER_ROLE" != "cloud" ]] && echo -e "  Hostname mail   : ${BOLD}mail.${DOMAIN}${RESET}"
     echo -e "  Utilisateur     : ${BOLD}${SYS_USER}${RESET}"
     echo -e "  Base de données : ${BOLD}${DB_NAME}${RESET}"
     echo -e "  Email admin     : ${BOLD}${ADMIN_EMAIL}${RESET}"
@@ -372,6 +375,8 @@ show_menu() {
     banner
     if [[ "$role" == "cloud" ]]; then
         echo -e "  Rôle : ${BOLD}☁️  cloud${RESET} (Nextcloud + Immich, sans mail ni FTP)\n"
+    elif [[ "$role" == "complet" ]]; then
+        echo -e "  Rôle : ${BOLD}🧩 complet${RESET} (web + mail + FTP + Nextcloud + Immich)\n"
     else
         echo -e "  Rôle : ${BOLD}🌐 web + mail${RESET}\n"
     fi
@@ -384,7 +389,11 @@ show_menu() {
         echo -e "  ${CYAN}[2]${RESET} 🌐 Stack LAMP  (Apache + MariaDB + PHP + phpMyAdmin + SSL)"
         echo -e "  ${CYAN}[3]${RESET} 📧 Serveur Mail (Postfix + Dovecot + OpenDKIM)"
         echo -e "  ${CYAN}[4]${RESET} 📁 Serveur FTP  (Pure-FTPd + SFTP)"
-        echo -e "  ${CYAN}[5]${RESET} ✅ Installation complète (1+2+3+4)"
+        if [[ "$role" == "complet" ]]; then
+            echo -e "  ${CYAN}[5]${RESET} ✅ Installation complète (1+2+3+4+12)"
+        else
+            echo -e "  ${CYAN}[5]${RESET} ✅ Installation complète (1+2+3+4)"
+        fi
     fi
     echo -e "  ${CYAN}[6]${RESET} 🔐 Sécuriser SSH (clé uniquement, désactive le mot de passe)"
     [[ "$role" == "cloud" ]] || echo -e "  ${CYAN}[7]${RESET} 📝 Installer WordPress (nécessite la stack LAMP)"
@@ -392,7 +401,7 @@ show_menu() {
     [[ "$role" == "cloud" ]] || echo -e "  ${CYAN}[9]${RESET} 👥 Gérer les comptes mail (ajout, alias, mots de passe…)"
     echo -e "  ${CYAN}[10]${RESET} 🌍 Gérer les sous-domaines (Apache + SSL Let's Encrypt)"
     echo -e "  ${CYAN}[11]${RESET} 💾 Sauvegarder le serveur (pour migration / réinstallation)"
-    if [[ "$role" == "cloud" ]]; then
+    if [[ "$role" == "cloud" || "$role" == "complet" ]]; then
         echo -e "  ${CYAN}[12]${RESET} ☁️  Cloud : Nextcloud, Immich, RAID, alertes, Fail2Ban"
     fi
     echo -e "  ${CYAN}[13]${RESET} 🔁 Sauvegarde croisée vers l'autre serveur (chaque nuit)"
@@ -471,12 +480,19 @@ main() {
             5)
                 bash "$SCRIPT_DIR/install_firewall.sh"
                 bash "$SCRIPT_DIR/install_lamp.sh"
-                if [[ "$(server_role)" == "cloud" ]]; then
-                    bash "$SCRIPT_DIR/install_cloud.sh" tout
-                else
-                    bash "$SCRIPT_DIR/install_mail.sh"
-                    bash "$SCRIPT_DIR/install_ftp.sh"
-                fi
+                case "$(server_role)" in
+                    cloud)
+                        bash "$SCRIPT_DIR/install_cloud.sh" tout ;;
+                    complet)
+                        # Mail AVANT le cloud : install_cloud.sh voit Postfix et
+                        # s'en sert pour les alertes (pas de relais msmtp)
+                        bash "$SCRIPT_DIR/install_mail.sh"
+                        bash "$SCRIPT_DIR/install_ftp.sh"
+                        bash "$SCRIPT_DIR/install_cloud.sh" tout ;;
+                    *)
+                        bash "$SCRIPT_DIR/install_mail.sh"
+                        bash "$SCRIPT_DIR/install_ftp.sh" ;;
+                esac
                 ;;
             6) secure_ssh ;;
             7) web_only && bash "$SCRIPT_DIR/install_wordpress.sh" ;;

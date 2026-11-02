@@ -673,6 +673,45 @@ echo -e "  ${GREEN}✉  Testez votre score : https://mail-tester.com${RESET}"
 echo -e "  ${GREEN}🔍 Vérifiez vos ports  : https://mxtoolbox.com/SuperTool.aspx${RESET}"
 
 # ---------------------------------------------------------------------------
+# 13. Réputation de l'IP — à vérifier AVANT de basculer le MX
+#     (les IP de serveurs dédiés d'entrée de gamme, Kimsufi notamment, sont
+#     parfois listées : mieux vaut le savoir avant que Gmail ne rejette tout)
+# ---------------------------------------------------------------------------
+log STEP "Réputation de l'IP ${SERVER_IP}"
+command -v dig &>/dev/null || apt-get install -y -qq dnsutils >/dev/null 2>&1 || true
+if command -v dig &>/dev/null; then
+    ptr=$(dig +short -x "$SERVER_IP" 2>/dev/null | sed 's/\.$//' | head -1 || true)
+    if [[ "$ptr" == "mail.${DOMAIN}" ]]; then
+        log OK "Reverse DNS : ${ptr}"
+    else
+        log WARN "Reverse DNS : « ${ptr:-aucun} » au lieu de mail.${DOMAIN}"
+        log WARN "  → Espace client OVH : Bare Metal Cloud → IP → ⋯ → Modifier le reverse"
+    fi
+
+    rev_ip=$(awk -F. '{print $4"."$3"."$2"."$1}' <<< "$SERVER_IP")
+    listed=0
+    for bl in zen.spamhaus.org bl.spamcop.net b.barracudacentral.org dnsbl.sorbs.net; do
+        ans=$(dig +short "${rev_ip}.${bl}" A 2>/dev/null | head -1 || true)
+        case "$ans" in
+            "")            log OK  "${bl} : non listée" ;;
+            127.255.255.*) log INFO "${bl} : requête refusée (résolveur public) — vérifier sur mxtoolbox.com" ;;
+            127.*)         log WARN "${bl} : LISTÉE (${ans})"; listed=1 ;;
+            *)             log INFO "${bl} : réponse inattendue (${ans})" ;;
+        esac
+    done
+    if (( listed )); then
+        echo -e "  ${YELLOW}⚠  IP listée : demandez le retrait (lien sur la page de la liste) ou faites${RESET}"
+        echo -e "  ${YELLOW}   sortir les mails par un relais SMTP (Brevo, etc.) via relayhost dans main.cf.${RESET}"
+    fi
+
+    if timeout 5 bash -c 'exec 3<>/dev/tcp/gmail-smtp-in.l.google.com/25' 2>/dev/null; then
+        log OK "Port 25 sortant ouvert (test vers Gmail)."
+    else
+        log WARN "Port 25 sortant bloqué ou filtré : l'envoi vers l'extérieur échouera."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Récapitulatif
 # ---------------------------------------------------------------------------
 log STEP "Serveur mail configuré"

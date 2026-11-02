@@ -1,4 +1,4 @@
-# Install_Server_Ubuntu v2.1
+# Install_Server_Ubuntu v2.2
 
 Scripts d'installation et de configuration complète d'un serveur Ubuntu sécurisé.
 
@@ -13,6 +13,7 @@ Scripts d'installation et de configuration complète d'un serveur Ubuntu sécuri
 7. [Gestion des sous-domaines](#gestion-des-sous-domaines)
 8. [Sauvegarde et changement de serveur](#sauvegarde-et-changement-de-serveur)
 9. [Serveur cloud : Nextcloud + Immich](#serveur-cloud--nextcloud--immich)
+   - [Serveur unique : rôle « complet »](#serveur-unique--rôle--complet-)
 10. [Sauvegarde croisée entre les deux serveurs](#sauvegarde-croisée-entre-les-deux-serveurs)
 11. [Commandes utiles](#commandes-utiles)
 12. [Dépannage](#dépannage)
@@ -22,8 +23,9 @@ Scripts d'installation et de configuration complète d'un serveur Ubuntu sécuri
 ## Présentation
 
 Ce projet automatise la mise en place d'un serveur web + mail + FTP complet sur Ubuntu 22.04 / 24.04
-(rôle **web**), ou d'un serveur de stockage perso Nextcloud + Immich (rôle **cloud**, voir
-[Serveur cloud](#serveur-cloud--nextcloud--immich)).
+(rôle **web**), d'un serveur de stockage perso Nextcloud + Immich (rôle **cloud**, voir
+[Serveur cloud](#serveur-cloud--nextcloud--immich)), ou des deux sur une seule machine
+(rôle **complet**, voir [Serveur unique](#serveur-unique--rôle--complet-)).
 
 | Composant     | Rôle                                          |
 |---------------|-----------------------------------------------|
@@ -73,7 +75,8 @@ sudo bash ~/Install_Server_Ubuntu/install.sh
 ```
 
 Le script vous pose une série de questions au démarrage :
-- **Rôle** : `[1]` web + mail (VPS) ou `[2]` cloud (dédié Nextcloud + Immich)
+- **Rôle** : `[1]` web + mail (VPS), `[2]` cloud (dédié Nextcloud + Immich) ou
+  `[3]` complet (un seul dédié qui fait tout)
 - **Nom de domaine** (ex : `mondomaine.fr` — le même sur les deux serveurs)
 - **Nom d'utilisateur système** : laisser **`ubuntu`** (valeur par défaut) — le compte et sa clé SSH
   ne sont pas modifiés, il reçoit juste les droits sudo s'il ne les a pas
@@ -568,6 +571,49 @@ Les identifiants générés (admin Nextcloud et Immich) s'affichent à la fin et
 Chaque étape se relance seule et sans risque (`sudo bash install_cloud.sh nextcloud`…) : elle
 ne refait que ce qui manque. C'est aussi ce qu'il faut faire si le certificat n'a pas pu être
 obtenu parce que le DNS n'était pas encore propagé.
+
+### Serveur unique : rôle « complet »
+
+Un seul dédié remplace le VPS **et** le serveur cloud : sites, WordPress, mail, FTP, Nextcloud
+et Immich sur la même machine (ex : Kimsufi KS-4, Xeon E3-1230 v6, 32 Go, 2×4 To HDD RAID 1).
+
+| Ce qui change par rapport aux deux rôles séparés | |
+|---|---|
+| Menu `[5]` | pare-feu + LAMP + mail + FTP + `install_cloud.sh tout` (le mail passe **avant** le cloud) |
+| Alertes RAID / disques / Nextcloud | envoyées par le **Postfix local**, pas de relais msmtp ni de compte `alertes@` à créer |
+| Pare-feu | ports du rôle web (mail + FTP inclus) |
+| DNS (`install_dns_ovh.sh`) | toute la zone est gérée d'ici : `@`, `www`, `mail`, MX, SPF, DKIM **et** `cloud`, `photos` |
+| MariaDB | cache InnoDB réglé à 1/4 de la RAM (8 Go sur 32 Go) par `install_lamp.sh` — indispensable sur des HDD |
+| Fin de `install_mail.sh` | vérification du reverse DNS, des listes noires (Spamhaus, SpamCop…) et du port 25 sortant |
+
+**Partitionnement conseillé à l'installation OVH** (Ubuntu 24.04, RAID 1 logiciel sur les deux
+disques) : `/` ≈ 100 Go (système, `/var/www`, `/var/vmail`, MariaDB, images Docker), swap 4 Go,
+et **tout le reste en `/srv`** (Nextcloud, photos Immich, archives de sauvegarde). On peut ainsi
+réinstaller le système sans toucher aux données.
+
+```bash
+sudo bash install.sh
+#   → Rôle : [3] Complet
+#   → menu [6] Sécuriser SSH (clé uniquement) — testez d'abord votre clé !
+#   → menu [5] Installation complète
+```
+
+**Avant de basculer le MX**, regardez le bilan « Réputation de l'IP » en fin d'installation du
+mail : reverse DNS sur `mail.<domaine>` (espace client OVH → IP → Modifier le reverse) et IP
+absente des listes noires. Si elle est listée, demandez le retrait ou faites sortir les mails
+par un relais SMTP (`relayhost` dans `/etc/postfix/main.cf`).
+
+**Migration depuis un VPS existant** : `backup_server.sh` sur le VPS, puis sur le dédié
+`restore_server.sh prepare` → `install.sh` (choisir « ne pas reconfigurer », puis éditer
+`SERVER_ROLE="complet"` dans `server.conf`) → `restore_server.sh <archive>`. Baissez le TTL DNS
+à 300 s quelques jours avant, migrez le mail en dernier, et gardez le VPS allumé quelques jours
+après la bascule.
+
+**Sauvegarde** : avec un seul serveur, il n'y a plus « d'autre serveur » pour la sauvegarde
+croisée. `backup_remote.sh` accepte n'importe quelle machine joignable en SSH (un NAS, un PC
+à la maison, un petit VPS de stockage) ; sinon, récupérez régulièrement les archives de
+`backup_server.sh --avec-donnees-cloud` vers un stockage hors site. Le RAID 1 ne protège ni
+d'une suppression ni d'un piratage.
 
 ### DNS
 

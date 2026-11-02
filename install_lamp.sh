@@ -103,6 +103,27 @@ if ! dpkg -l mariadb-server &>/dev/null; then
 fi
 systemctl enable --now mariadb
 
+# Réglage mémoire InnoDB : 1/4 de la RAM (défaut MariaDB : 128 Mo seulement).
+# Sur un dédié 32 Go en rôle « complet » (Nextcloud + WordPress + mail + une
+# éventuelle base de jeu), ça fait 8 Go de cache : les disques HDD sont alors
+# beaucoup moins sollicités. Fichier écrit une seule fois : modifiez-le à la
+# main ensuite si besoin (puis : systemctl restart mariadb).
+TUNING_CNF="/etc/mysql/mariadb.conf.d/90-install-server.cnf"
+if [[ ! -f "$TUNING_CNF" ]]; then
+    ram_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+    pool_mb=$(( ram_mb / 4 )); (( pool_mb < 256 )) && pool_mb=256
+    cat > "$TUNING_CNF" <<CNF
+# Généré par install_lamp.sh — RAM détectée : ${ram_mb} Mo
+[mysqld]
+innodb_buffer_pool_size = ${pool_mb}M
+innodb_log_file_size    = $(( pool_mb / 4 > 2048 ? 2048 : (pool_mb / 4 < 64 ? 64 : pool_mb / 4) ))M
+innodb_flush_method     = O_DIRECT
+max_connections         = 200
+CNF
+    systemctl restart mariadb
+    log OK "MariaDB : cache InnoDB réglé à ${pool_mb} Mo (${TUNING_CNF})."
+fi
+
 # Sécurisation de MariaDB (équivalent mysql_secure_installation)
 # Note : on NE touche PAS à l'authentification de root@localhost, qui reste
 # en "unix_socket" (le défaut sécurisé sur Ubuntu/Debian, sans mot de passe

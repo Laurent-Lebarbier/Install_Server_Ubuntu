@@ -24,6 +24,7 @@
 #      sudo bash manage_subdomains.sh add    app  --proxy 3000        # proxy vers 127.0.0.1:3000
 #      sudo bash manage_subdomains.sh list
 #      sudo bash manage_subdomains.sh ssl    blog                     # (re)demande le certificat
+#      sudo bash manage_subdomains.sh dns    blog                     # (re)crée le A chez OVH
 #      sudo bash manage_subdomains.sh delete blog
 #
 #  Options : --proxy PORT|HOST:PORT   --no-dns (ne touche pas au DNS OVH)
@@ -193,13 +194,23 @@ ovh_api() {
     http_code=$(tail -n1 <<< "$response")
     out=$(sed '$d' <<< "$response")
     if [[ "$http_code" -ge 400 ]]; then
-        log ERROR "API OVH (HTTP ${http_code}) ${method} ${path} : ${out}"
+        # vers stderr : sur stdout, le message partait dans le « | json_ids »
+        # et ne laissait voir qu'une trace Python illisible
+        log ERROR "API OVH (HTTP ${http_code}) ${method} ${path} : ${out}" >&2
+        return 1
+    fi
+    if [[ "$http_code" == "000" ]]; then
+        log ERROR "API OVH injoignable (${OVH_ENDPOINT}) — réseau ou DNS du serveur ?" >&2
         return 1
     fi
     echo "$out"
 }
 
-json_ids() { python3 -c 'import json,sys; [print(i) for i in json.load(sys.stdin)]'; }
+json_ids() {
+    python3 -c 'import json,sys
+d = sys.stdin.read().strip()
+for i in (json.loads(d) if d else []): print(i)'
+}
 
 # Crée (ou corrige) l'enregistrement A sub → SERVER_IP
 ovh_dns_add() {
@@ -516,6 +527,10 @@ case "$cmd" in
     add)            add_subdomain "${ARG:?Usage : $0 add NOM [--proxy PORT]}" "$PROXY" ;;
     list|ls)        list_subdomains ;;
     ssl)            ssl_subdomain "${ARG:?Usage : $0 ssl NOM}" ;;
+    dns)
+        ARG="${ARG:?Usage : $0 dns NOM}"
+        ovh_enabled || { log ERROR "Clés API OVH absentes de server.conf."; exit 1; }
+        ovh_dns_add "$ARG" ;;
     delete|del|rm)  delete_subdomain "${ARG:?Usage : $0 delete NOM}" ;;
     -h|--help|help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) log ERROR "Commande inconnue : ${cmd} (voir : $0 help)"; exit 1 ;;

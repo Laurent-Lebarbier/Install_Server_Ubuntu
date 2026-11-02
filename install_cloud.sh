@@ -230,6 +230,12 @@ ensure_subdomain() {
     local sub="$1" port="${2:-}" fqdn="${1}.${DOMAIN}"
     if [[ -f "/etc/apache2/sites-available/${fqdn}.conf" ]]; then
         log INFO "VirtualHost ${fqdn} déjà présent."
+        # Le DNS a pu échouer au premier passage : on le refait s'il ne
+        # pointe pas encore ici et que les clés OVH sont connues
+        if [[ "$(resolve_ip "$fqdn")" != "$SERVER_IP" && -n "${OVH_CONSUMER_KEY:-}" ]]; then
+            bash "${SCRIPT_DIR}/manage_subdomains.sh" dns "$sub" \
+                || log WARN "DNS de ${fqdn} non créé — à faire à la main : A → ${SERVER_IP}"
+        fi
         return 0
     fi
     local args=(add "$sub" --no-ssl -y)
@@ -506,8 +512,16 @@ INI
            || ! curl -fsSL -o "${tmp}/latest.tar.bz2.sha256" "${url}.sha256"; then
             rm -rf "$tmp"; log ERROR "Téléchargement impossible (${url})."; return 1
         fi
-        if ! (cd "$tmp" && sha256sum -c --status latest.tar.bz2.sha256); then
-            rm -rf "$tmp"; log ERROR "Empreinte SHA-256 incorrecte — archive rejetée."; return 1
+        # On compare l'empreinte seule : le nom de fichier écrit dans le .sha256
+        # de Nextcloud ne correspond pas toujours à « latest.tar.bz2 » (il a
+        # été vu à « latest.metadata »), ce qui faisait échouer sha256sum -c.
+        local want got
+        want=$(grep -oE '\b[0-9a-f]{64}\b' "${tmp}/latest.tar.bz2.sha256" | head -n1 || true)
+        got=$(sha256sum "${tmp}/latest.tar.bz2" | cut -d' ' -f1)
+        if [[ -z "$want" || "$want" != "$got" ]]; then
+            rm -rf "$tmp"
+            log ERROR "Empreinte SHA-256 incorrecte — archive rejetée (attendue : ${want:-illisible}, obtenue : ${got})."
+            return 1
         fi
         log OK "Archive vérifiée (SHA-256)."
         # Page d'attente posée par manage_subdomains.sh

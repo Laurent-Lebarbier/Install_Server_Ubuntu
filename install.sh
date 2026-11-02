@@ -418,6 +418,11 @@ web_only() {
     fi
 }
 
+# Un sous-script a échoué : on le signale sans quitter le menu
+run_failed() {
+    log WARN "$1 s'est arrêté sur une erreur (voir ci-dessus) — relancez-le seul depuis le menu une fois corrigé."
+}
+
 show_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
         banner
@@ -473,29 +478,31 @@ main() {
     while true; do
         show_menu
         case "$CHOICE" in
-            1) bash "$SCRIPT_DIR/install_firewall.sh" ;;
-            2) bash "$SCRIPT_DIR/install_lamp.sh" ;;
-            3) web_only && bash "$SCRIPT_DIR/install_mail.sh" ;;
-            4) web_only && bash "$SCRIPT_DIR/install_ftp.sh" ;;
+            1) bash "$SCRIPT_DIR/install_firewall.sh" || run_failed install_firewall.sh ;;
+            2) bash "$SCRIPT_DIR/install_lamp.sh" || run_failed install_lamp.sh ;;
+            3) web_only && { bash "$SCRIPT_DIR/install_mail.sh" || run_failed install_mail.sh; } ;;
+            4) web_only && { bash "$SCRIPT_DIR/install_ftp.sh" || run_failed install_ftp.sh; } ;;
             5)
-                bash "$SCRIPT_DIR/install_firewall.sh"
-                bash "$SCRIPT_DIR/install_lamp.sh"
+                bash "$SCRIPT_DIR/install_firewall.sh" || run_failed install_firewall.sh
+                bash "$SCRIPT_DIR/install_lamp.sh"     || run_failed install_lamp.sh
+                # « || run_failed » : un sous-script en échec ne fait plus
+                # quitter install.sh (set -e) — les étapes suivantes tournent
                 case "$(server_role)" in
                     cloud)
-                        bash "$SCRIPT_DIR/install_cloud.sh" tout ;;
+                        bash "$SCRIPT_DIR/install_cloud.sh" tout || run_failed install_cloud.sh ;;
                     complet)
                         # Mail AVANT le cloud : install_cloud.sh voit Postfix et
                         # s'en sert pour les alertes (pas de relais msmtp)
-                        bash "$SCRIPT_DIR/install_mail.sh"
-                        bash "$SCRIPT_DIR/install_ftp.sh"
-                        bash "$SCRIPT_DIR/install_cloud.sh" tout ;;
+                        bash "$SCRIPT_DIR/install_mail.sh"  || run_failed install_mail.sh
+                        bash "$SCRIPT_DIR/install_ftp.sh"   || run_failed install_ftp.sh
+                        bash "$SCRIPT_DIR/install_cloud.sh" tout || run_failed install_cloud.sh ;;
                     *)
-                        bash "$SCRIPT_DIR/install_mail.sh"
-                        bash "$SCRIPT_DIR/install_ftp.sh" ;;
+                        bash "$SCRIPT_DIR/install_mail.sh" || run_failed install_mail.sh
+                        bash "$SCRIPT_DIR/install_ftp.sh"  || run_failed install_ftp.sh ;;
                 esac
                 ;;
             6) secure_ssh ;;
-            7) web_only && bash "$SCRIPT_DIR/install_wordpress.sh" ;;
+            7) web_only && { bash "$SCRIPT_DIR/install_wordpress.sh" || run_failed install_wordpress.sh; } ;;
             8) show_config ;;
             9) bash "$SCRIPT_DIR/manage_mail.sh" || true ;;
             10) bash "$SCRIPT_DIR/manage_subdomains.sh" || true ;;

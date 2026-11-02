@@ -87,6 +87,24 @@ Le script vous pose une série de questions au démarrage :
 
 Ces informations sont sauvegardées dans `server.conf` et utilisées par tous les sous-scripts.
 
+### Journal d'installation
+
+Tout ce qui s'affiche pendant `install.sh`, les `install_*.sh` et `restore_server.sh` est aussi
+écrit, sans les couleurs, dans **`/var/log/install_server/<date>_<script>.log`** : un fichier
+par lancement (un sous-script lancé depuis le menu écrit dans le journal d'`install.sh`).
+Le chemin est rappelé à la fin ; en cas d'erreur, le script propose la commande pour en
+afficher la fin.
+
+```bash
+sudo ls -lt /var/log/install_server/                   # journaux, du plus récent au plus ancien
+sudo tail -n 80 /var/log/install_server/<fichier>.log  # la fin, pour la partager
+sudo grep -n 'WARN\|ERROR\|échou' /var/log/install_server/<fichier>.log
+```
+
+Les mots de passe **tapés** n'y figurent pas (ils ne s'affichent pas), mais les identifiants
+**générés** et affichés en fin d'étape, si : le dossier est réservé à root (`chmod 700`).
+Pour lancer sans journal : `INSTALL_NO_LOG=1 sudo bash install.sh`.
+
 ---
 
 ## Détail des scripts

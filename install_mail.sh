@@ -33,6 +33,11 @@
 # =============================================================================
 
 set -euo pipefail
+
+# Journal d'installation : tout l'affichage est aussi écrit dans
+# /var/log/install_server/ (voir lib_log.sh)
+# shellcheck source=lib_log.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_log.sh" 2>/dev/null && start_install_log "$@"
 IFS=$'\n\t'
 
 # ---------------------------------------------------------------------------

@@ -886,6 +886,15 @@ cmd_etat() {
     [[ -d "$NC_DATA_DIR" ]]          && echo "  Nextcloud : $(du -sh "$NC_DATA_DIR" 2>/dev/null | cut -f1)"
     [[ -d "${IMMICH_DATA}/library" ]] && echo "  Immich    : $(du -sh "${IMMICH_DATA}/library" 2>/dev/null | cut -f1)"
 
+    log STEP "Nextcloud"
+    if nc_installed; then
+        echo -e "  ${GREEN}installé${RESET} — $(occ status --output=json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print("version "+d["versionstring"]+(" (MAINTENANCE)" if d.get("maintenance") else ""))' 2>/dev/null || echo "version ?")"
+    elif [[ -f "$(nc_dir)/occ" ]]; then
+        echo -e "  ${YELLOW}fichiers présents mais installation non terminée${RESET} — sudo bash $0 nextcloud"
+    else
+        echo -e "  ${RED}non installé${RESET} — sudo bash $0 nextcloud"
+    fi
+
     log STEP "Services"
     local s
     for s in apache2 mariadb redis-server docker fail2ban smartmontools; do
@@ -924,15 +933,26 @@ cmd_mise_a_jour() {
 }
 
 step_tout() {
-    step_alertes
-    step_raid
-    step_nextcloud
-    step_immich
-    step_fail2ban
-    log STEP "Serveur cloud installé"
+    # Chaque étape est lancée seule : un échec n'arrête pas les suivantes,
+    # mais il est signalé dans le bilan (avant, « Serveur cloud installé »
+    # s'affichait même quand Nextcloud avait échoué)
+    local failed=() st
+    for st in alertes raid nextcloud immich fail2ban; do
+        "step_${st}" || failed+=("$st")
+    done
+    if (( ${#failed[@]} )); then
+        log STEP "Serveur cloud installé — AVEC ERREURS"
+        for st in "${failed[@]}"; do
+            echo -e "  ${RED}✘ ${st}${RESET} — relancez : ${BOLD}sudo bash $0 ${st}${RESET}"
+        done
+        echo -e "  (le message d'erreur est plus haut, ou dans /var/log/install_server/)"
+    else
+        log STEP "Serveur cloud installé"
+    fi
     echo -e "  Nextcloud : ${GREEN}https://$(nc_fqdn)${RESET}"
     echo -e "  Immich    : ${GREEN}https://$(imm_fqdn)${RESET}"
     echo -e "  État      : ${BOLD}sudo bash $0 etat${RESET}"
+    (( ${#failed[@]} == 0 ))
 }
 
 # ---------------------------------------------------------------------------

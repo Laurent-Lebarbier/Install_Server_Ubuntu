@@ -139,12 +139,55 @@ cmd_prepare() {
     log STEP "Récupération de server.conf"
     local tmp; tmp=$(mktemp -d); chmod 700 "$tmp"
     extract "$archive" "$tmp" meta/server.conf meta/info.txt
+    local old_conf=""
     if [[ -f "$CONFIG_FILE" ]]; then
-        cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-        log INFO "server.conf existant sauvegardé (.bak)."
+        old_conf="${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+        cp "$CONFIG_FILE" "$old_conf"
+        log INFO "server.conf existant sauvegardé : $(basename "$old_conf")"
     fi
     cp "$tmp/meta/server.conf" "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
+
+    # Serveur déjà en service (ex. rôle « complet » avec Nextcloud + Immich
+    # installés AVANT la migration) : on garde ce qui lui est propre.
+    #   - les réglages absents de la sauvegarde (NC_*, IMMICH_*…) ;
+    #   - SERVER_ROLE s'il vaut « complet » ou « cloud » ;
+    #   - les clés API OVH de ce serveur (les plus récentes).
+    # Tout le reste (mots de passe des bases, du mail, de WordPress) vient de
+    # la sauvegarde : c'est ce qui correspond aux comptes MariaDB restaurés.
+    if [[ -n "$old_conf" ]]; then
+        local merged
+        merged=$(python3 - "$old_conf" "$CONFIG_FILE" 2>"$tmp/kept" <<'PYM'
+import re, sys
+def parse(path):
+    keys, lines = {}, open(path, encoding="utf-8").read().splitlines()
+    for l in lines:
+        m = re.match(r'^([A-Z_][A-Z0-9_]*)=', l)
+        if m: keys[m.group(1)] = l
+    return keys, lines
+old, _ = parse(sys.argv[1]); new, lines = parse(sys.argv[2])
+keep = set()
+if old.get("SERVER_ROLE", "").split("=", 1)[-1].strip('"') in ("complet", "cloud"):
+    keep.add("SERVER_ROLE")
+keep |= {k for k in old if k.startswith("OVH_")}
+out, done = [], set()
+for l in lines:
+    m = re.match(r'^([A-Z_][A-Z0-9_]*)=', l)
+    if m and m.group(1) in keep:
+        out.append(old[m.group(1)]); done.add(m.group(1))
+    else:
+        out.append(l)
+extra = [k for k in old if (k not in new or k in keep) and k not in done]
+if extra:
+    out.append("")
+    out.append("# --- Repris du server.conf de ce serveur (restore_server.sh prepare) ---")
+    out += [old[k] for k in extra]
+print("\n".join(out))
+print(" ".join(sorted(set(extra) | done)), file=sys.stderr)
+PYM
+        ) && printf '%s\n' "$merged" > "$CONFIG_FILE"
+        [[ -s "$tmp/kept" ]] && log OK "Réglages de ce serveur conservés : $(cat "$tmp/kept")"
+    fi
     log OK "server.conf restauré (sauvegarde du $(grep '^date=' "$tmp/meta/info.txt" | cut -d= -f2))."
     rm -rf "$tmp"
 
@@ -163,6 +206,13 @@ cmd_prepare() {
     fi
 
     log STEP "Étape suivante"
+    if [[ -n "$old_conf" ]] && dpkg -s postfix &>/dev/null; then
+        echo -e "  Ce serveur est ${BOLD}déjà installé${RESET} : il faut juste réaligner le mail sur les"
+        echo -e "  mots de passe de la sauvegarde, puis restaurer :"
+        echo -e "  1. ${BOLD}sudo bash ${SCRIPT_DIR}/install_mail.sh${RESET}"
+        echo -e "  2. ${BOLD}sudo bash ${SCRIPT_DIR}/restore_server.sh ${archive}${RESET}"
+        return 0
+    fi
     echo -e "  1. ${BOLD}sudo bash ${SCRIPT_DIR}/install.sh${RESET}"
     echo -e "     → « Reconfigurer depuis zéro ? » : ${BOLD}n${RESET}"
     echo -e "     → menu ${BOLD}[5]${RESET} Installation complète (pas WordPress, il sera restauré)"

@@ -633,6 +633,20 @@ croisée. `backup_remote.sh` accepte n'importe quelle machine joignable en SSH (
 `backup_server.sh --avec-donnees-cloud` vers un stockage hors site. Le RAID 1 ne protège ni
 d'une suppression ni d'un piratage.
 
+### Revenir d'un rôle « complet » à un rôle « cloud »
+
+Si le dédié a été installé en rôle complet et qu'on garde finalement un VPS pour le site, WordPress
+et le mail :
+
+```bash
+sudo bash passer_role_cloud.sh
+```
+
+Le script retire le serveur mail, le FTP, le site principal et phpMyAdmin, renomme la machine en
+`cloud.<domaine>` et refait le pare-feu en rôle cloud, **sans toucher à Nextcloud ni à Immich**.
+Il affiche ensuite les étapes restantes : compte `alertes@` sur le VPS, puis
+`install_cloud.sh alertes`, `raid`, `nextcloud` et `fail2ban` sur le dédié.
+
 ### DNS
 
 Les enregistrements `cloud` et `photos` (A → IP du dédié) sont créés automatiquement si les

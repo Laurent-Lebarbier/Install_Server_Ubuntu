@@ -203,8 +203,9 @@ grep -qE "[[:space:]]${NEW_HOST//./\\.}([[:space:]]|$)" /etc/hosts \
 log OK "${OLD_HOST} → ${NEW_HOST}"
 
 # ---------------------------------------------------------------------------
-log STEP "Pare-feu (remis à zéro, rôle cloud)"
-ufw --force reset >/dev/null
+log STEP "Pare-feu (rôle cloud)"
+# install_firewall.sh remet lui-même UFW à zéro : un « ufw reset » ici, dans
+# la même seconde, faisait échouer le sien (nom de sauvegarde déjà pris)
 bash "${SCRIPT_DIR}/install_firewall.sh"
 # Docker recrée ses propres règles (il ne passe pas par UFW)
 systemctl restart docker 2>/dev/null || true

@@ -354,8 +354,13 @@ verify_dns() {
             chk_ok "A ${s} → ${SERVER_IP}"
         elif (( $(zone_count CNAME "$s") > 0 )); then
             chk_warn "${s} est un CNAME ($(zone_get CNAME "$s" | head -n1)) — vérifiez qu'il mène bien à ce serveur"
+        elif [[ -n "$(zone_get A "$s" | head -n1)" ]]; then
+            # Pointe vers un autre serveur (ex : cloud./photos. sur le serveur
+            # cloud) : NE PAS « corriger » par une remise à zéro, qui le
+            # détournerait vers celui-ci. Le VirtualHost local est sans doute un reste.
+            chk_warn "A ${s} → $(zone_get A "$s" | paste -sd' ') (un autre serveur) : laissé tel quel. Si le VirtualHost ${s} de CE serveur est un reste, retirez-le sans toucher au DNS : sudo bash manage_subdomains.sh delete ${s} --no-dns"
         else
-            chk_err "A ${s} absent ou faux ($(zone_get A "$s" | paste -sd' ')) — relancez ce script sans --verifier (il recrée les sous-domaines)"
+            chk_err "A ${s} absent — relancez ce script sans --verifier (il recrée les sous-domaines)"
         fi
     done
 
@@ -478,6 +483,8 @@ log ""
 log "⚠️  Vous êtes sur le point de SUPPRIMER TOUS les enregistrements DNS"
 log "    de la zone ${DOMAIN} (sauf les NS, jamais touchés), puis de les"
 log "    recréer avec la configuration mail standard (A, MX, SPF, DKIM, DMARC)."
+log "    Les sous-domaines (A/CNAME) qui pointent vers UN AUTRE serveur sont"
+log "    conservés (ex : cloud., photos. du serveur cloud)."
 log "    Toute autre configuration DNS existante (sous-domaines, autres TXT,"
 log "    CNAME, etc.) sera perdue si elle n'a pas déjà été notée."
 log ""
@@ -488,13 +495,23 @@ read -rp "Tapez SUPPRIMER en majuscules pour confirmer : " CONFIRM
 # 6. Suppression de tous les enregistrements (hors NS)
 # -----------------------------------------------------------------------------
 log "=== Suppression des enregistrements existants ==="
+KEPT_SUBS=()
 for id in $(echo "$ALL_IDS" | python3 -c 'import json,sys; [print(i) for i in json.load(sys.stdin)]'); do
     rec=$(ovh_api GET "/domain/zone/${DOMAIN}/record/${id}")
     rtype=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin)["fieldType"])')
     rsub=$(echo "$rec"  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("subDomain") or "@")')
+    rtarget=$(echo "$rec" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("target",""))')
 
     if [[ "$rtype" == "NS" ]]; then
         log "  ⏭  Conservé : ${rsub} (NS) — jamais supprimé"
+        continue
+    fi
+    # Sous-domaine servi par un AUTRE de vos serveurs (ex : cloud., photos. sur
+    # le serveur cloud) : on le garde, sinon la remise à zéro le couperait.
+    if [[ "$rtype" =~ ^(A|AAAA|CNAME)$ && ! "$rsub" =~ ^(@|www|mail)$ \
+          && "$rtarget" != "$SERVER_IP" && "$rsub" != *_domainkey* ]]; then
+        log "  ⏭  Conservé : ${rsub} (${rtype} → ${rtarget}) — pointe vers un autre serveur"
+        KEPT_SUBS+=("$rsub")
         continue
     fi
 
@@ -528,6 +545,11 @@ for conf in /etc/apache2/sites-available/*."${DOMAIN}".conf; do
     [[ -f "$conf" && "$conf" != *-le-ssl.conf ]] || continue
     grep -q '^# Géré par manage_subdomains.sh' "$conf" || continue
     sub=$(basename "$conf" .conf); sub="${sub%."${DOMAIN}"}"
+    if [[ " ${KEPT_SUBS[*]} " == *" ${sub} "* ]]; then
+        log "  ⚠  ${sub} : VirtualHost présent ici, mais le DNS pointe vers un autre serveur — laissé tel quel."
+        log "     Si ce VirtualHost est un reste : sudo bash manage_subdomains.sh delete ${sub} --no-dns"
+        continue
+    fi
     dns_set_record "$sub" "A" "${SERVER_IP}"
 done
 

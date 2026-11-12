@@ -175,6 +175,13 @@ fi
 
 chown -R www-data:www-data "$VHOST_DIR"
 
+# WP-CLI tourne en www-data et relance parfois PHP dans un sous-processus
+# (ex : « wp rewrite structure » → « rewrite flush »). Ce sous-processus part
+# du dossier courant : depuis /home/ubuntu (750, illisible pour www-data) il
+# échoue avec « proc_open(): posix_spawn() failed: Permission denied ».
+# On se place donc dans le dossier du site, accessible à www-data.
+cd "$VHOST_DIR"
+
 # ---------------------------------------------------------------------------
 # 5. Téléchargement et configuration de WordPress
 # ---------------------------------------------------------------------------

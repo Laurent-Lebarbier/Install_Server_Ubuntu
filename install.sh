@@ -12,7 +12,8 @@
 #              ni FTP ; le mail du domaine reste sur le serveur « web »
 #
 #  Ce script orchestre l'installation complète d'un serveur Ubuntu :
-#    1. Création d'un utilisateur système sécurisé
+#    1. Vérification du compte système existant (aucun compte ni mot de
+#       passe système créé : connexion SSH par clé sur le compte actuel)
 #    2. Configuration du pare-feu UFW (ports selon le rôle)
 #    3. Stack LAMP (Apache, MariaDB, PHP, phpMyAdmin — sans phpMyAdmin
 #       ni site principal en rôle cloud)
@@ -127,7 +128,8 @@ check_ubuntu() {
 # ---------------------------------------------------------------------------
 
 # Fichier de configuration persistant (source par les autres scripts)
-readonly CONFIG_FILE="$(dirname "$0")/server.conf"
+CONFIG_FILE="$(dirname "$0")/server.conf"
+readonly CONFIG_FILE
 
 collect_config() {
     log STEP "Configuration initiale du serveur"
@@ -164,50 +166,49 @@ collect_config() {
         log ERROR "Format de domaine invalide : $DOMAIN"; exit 1
     fi
 
-    # --- Nom d'utilisateur système ---
-    echo -e "\n${BOLD}  👤 Compte administrateur Linux${RESET}"
-    echo -e "     (compte utilisé pour se connecter en SSH avec sudo)"
-    echo -e "     ${YELLOW}Laissez la valeur par défaut si vous vous connectez déjà en SSH${RESET}"
-    echo -e "     ${YELLOW}avec une clé sur le compte \"ubuntu\" (cas standard OVH/cloud) —${RESET}"
-    echo -e "     ${YELLOW}ce compte et sa clé ne seront alors pas modifiés.${RESET}"
-    local user_default="ubuntu"
+    # --- Compte système (existant, non créé) ---
+    # Aucun compte ni mot de passe système n'est créé : on réutilise le compte
+    # avec lequel vous êtes connecté en SSH par clé (ex : « ubuntu » chez OVH).
+    # Il sert de propriétaire des fichiers des sites, de base au nom du
+    # compte FTP et de destination des sauvegardes.
+    local user_default="${SUDO_USER:-}"
+    [[ -z "$user_default" || "$user_default" == "root" ]] && user_default="ubuntu"
+    echo -e "\n${BOLD}  👤 Compte administrateur Linux (existant)${RESET}"
+    echo -e "     (le compte avec lequel vous vous connectez en SSH par clé —"
+    echo -e "      il n'est ni créé ni modifié, aucun mot de passe n'est demandé)"
     read -rp "$(echo -e "  ${CYAN}Nom d'utilisateur [${user_default}] : ${RESET}")" SYS_USER
     SYS_USER="${SYS_USER:-$user_default}"
 
-    # Validation du nom d'utilisateur
-    if ! echo "$SYS_USER" | grep -qP '^[a-z_][a-z0-9_-]{1,31}$'; then
-        log ERROR "Nom d'utilisateur invalide (minuscules, chiffres, tirets, 2-32 car.) : $SYS_USER"
+    if ! id "$SYS_USER" &>/dev/null; then
+        log ERROR "Le compte « $SYS_USER » n'existe pas sur ce serveur."
+        log ERROR "Indiquez le compte avec lequel vous vous connectez en SSH (ex : ubuntu)."
         exit 1
     fi
 
-    # --- Mot de passe système ---
-    echo -e "\n${BOLD}  🔑 Mot de passe du compte${RESET}"
-    echo -e "     (min. 12 caractères — utilisé pour sudo et par certains services"
-    echo -e "     comme le compte FTP ; si \"$SYS_USER\" existe déjà et que vous vous"
-    echo -e "     connectez par clé SSH, ce mot de passe ${BOLD}ne remplacera pas${RESET}${YELLOW} votre clé)${RESET}"
-    local SYS_PASS SYS_PASS2
-    while true; do
-        read -rsp "$(echo -e "  ${CYAN}Mot de passe : ${RESET}")" SYS_PASS; echo
-        read -rsp "$(echo -e "  ${CYAN}Confirmez   : ${RESET}")" SYS_PASS2; echo
-        if [[ "$SYS_PASS" != "$SYS_PASS2" ]]; then
-            log WARN "Les mots de passe ne correspondent pas, réessayez."
-        elif [[ ${#SYS_PASS} -lt 12 ]]; then
-            log WARN "Le mot de passe doit contenir au moins 12 caractères."
-        else
-            break
-        fi
-    done
-
-    # --- Mot de passe MariaDB ---
-    echo -e "\n${BOLD}  🗄️  Base de données MariaDB${RESET}"
+    # --- Compte MariaDB (utilisateur + mot de passe, sans base) ---
+    echo -e "\n${BOLD}  🗄️  Compte MariaDB${RESET}"
+    echo -e "     (compte administrateur MariaDB, utilisable dans phpMyAdmin —"
+    echo -e "      aucune base n'est créée : créez-les ensuite selon vos besoins)"
+    read -rp "$(echo -e "  ${CYAN}Utilisateur MariaDB [${SYS_USER}] : ${RESET}")" DB_USER
+    DB_USER="${DB_USER:-$SYS_USER}"
+    if ! echo "$DB_USER" | grep -qP '^[A-Za-z0-9_]{1,80}$'; then
+        log ERROR "Nom d'utilisateur MariaDB invalide (lettres, chiffres, _) : $DB_USER"
+        exit 1
+    fi
     local DB_PASS DB_PASS2
-    read -rp "$(echo -e "  ${CYAN}Nom de la base de données [${SYS_USER}_db] : ${RESET}")" DB_NAME
-    DB_NAME="${DB_NAME:-${SYS_USER}_db}"
     while true; do
         read -rsp "$(echo -e "  ${CYAN}Mot de passe MariaDB : ${RESET}")" DB_PASS; echo
         read -rsp "$(echo -e "  ${CYAN}Confirmez           : ${RESET}")" DB_PASS2; echo
-        [[ "$DB_PASS" == "$DB_PASS2" ]] && break
-        log WARN "Les mots de passe ne correspondent pas."
+        if [[ "$DB_PASS" != "$DB_PASS2" ]]; then
+            log WARN "Les mots de passe ne correspondent pas."
+        elif [[ ${#DB_PASS} -lt 12 ]]; then
+            log WARN "Le mot de passe doit contenir au moins 12 caractères."
+        elif [[ "$DB_PASS" == *'"'* || "$DB_PASS" == *'$'* || "$DB_PASS" == *'`'* || "$DB_PASS" == *'\'* ]]; then
+            # server.conf est un fichier shell (source) : ces caractères le casseraient
+            log WARN "Évitez les caractères \" \$ \` et \\ dans le mot de passe."
+        else
+            break
+        fi
     done
 
     # --- Adresse e-mail admin ---
@@ -229,8 +230,8 @@ collect_config() {
     echo -e "  Rôle            : ${BOLD}${SERVER_ROLE}${RESET}"
     echo -e "  Domaine         : ${BOLD}${DOMAIN}${RESET}"
     [[ "$SERVER_ROLE" != "cloud" ]] && echo -e "  Hostname mail   : ${BOLD}mail.${DOMAIN}${RESET}"
-    echo -e "  Utilisateur     : ${BOLD}${SYS_USER}${RESET}"
-    echo -e "  Base de données : ${BOLD}${DB_NAME}${RESET}"
+    echo -e "  Compte système  : ${BOLD}${SYS_USER}${RESET} (existant, non modifié)"
+    echo -e "  Compte MariaDB  : ${BOLD}${DB_USER}${RESET}"
     echo -e "  Email admin     : ${BOLD}${ADMIN_EMAIL}${RESET}"
     echo -e "  IP publique     : ${BOLD}${SERVER_IP}${RESET}"
     echo
@@ -245,9 +246,7 @@ SERVER_ROLE="${SERVER_ROLE}"
 DOMAIN="${DOMAIN}"
 HOSTNAME_MAIL="mail.${DOMAIN}"
 SYS_USER="${SYS_USER}"
-SYS_PASS="${SYS_PASS}"
-DB_NAME="${DB_NAME}"
-DB_USER="${SYS_USER}"
+DB_USER="${DB_USER}"
 DB_PASS="${DB_PASS}"
 ADMIN_EMAIL="${ADMIN_EMAIL}"
 SERVER_IP="${SERVER_IP}"
@@ -257,39 +256,33 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# 3. CRÉATION DE L'UTILISATEUR SYSTÈME
+# 3. VÉRIFICATION DU COMPTE SYSTÈME (aucune création)
 # ---------------------------------------------------------------------------
-create_system_user() {
+check_system_user() {
     # shellcheck source=./server.conf
     source "$CONFIG_FILE"
-    log STEP "Compte système : $SYS_USER"
+    log STEP "Compte système : ${SYS_USER:-?}"
 
-    if id "$SYS_USER" &>/dev/null; then
-        # Cas standard : "$SYS_USER" est un compte déjà présent (ex : "ubuntu"
-        # sur une image cloud OVH), avec sa propre clé SSH déjà fonctionnelle.
-        # On ne touche NI au mot de passe, NI aux clés SSH existantes — on
-        # s'assure juste qu'il a bien les droits sudo.
-        log OK "Le compte $SYS_USER existe déjà — mot de passe et clés SSH laissés inchangés."
-        usermod -aG sudo "$SYS_USER" 2>/dev/null || true
-        log OK "Droits sudo vérifiés pour $SYS_USER."
-    else
-        useradd -m -s /bin/bash -G sudo "$SYS_USER"
-        echo "$SYS_USER:$SYS_PASS" | chpasswd
-        log OK "Utilisateur $SYS_USER créé avec droits sudo."
+    if [[ -n "${SYS_USER:-}" ]] && id "$SYS_USER" &>/dev/null; then
+        log OK "Le compte $SYS_USER existe — mot de passe et clés SSH laissés inchangés."
+        return 0
+    fi
 
-        # Copie des clés SSH root si disponibles (uniquement pour un compte
-        # tout juste créé — fusion sans écraser, au cas où)
-        if [[ -f /root/.ssh/authorized_keys ]]; then
-            mkdir -p "/home/$SYS_USER/.ssh"
-            touch "/home/$SYS_USER/.ssh/authorized_keys"
-            cat /root/.ssh/authorized_keys "/home/$SYS_USER/.ssh/authorized_keys" \
-                | sort -u > "/home/$SYS_USER/.ssh/authorized_keys.tmp"
-            mv "/home/$SYS_USER/.ssh/authorized_keys.tmp" "/home/$SYS_USER/.ssh/authorized_keys"
-            chown -R "$SYS_USER:$SYS_USER" "/home/$SYS_USER/.ssh"
-            chmod 700 "/home/$SYS_USER/.ssh"
-            chmod 600 "/home/$SYS_USER/.ssh/authorized_keys"
-            log OK "Clés SSH copiées depuis root."
+    # Cas d'un server.conf restauré depuis un autre serveur dont le compte
+    # n'existe pas ici : on propose le compte de la session SSH actuelle.
+    log WARN "Le compte « ${SYS_USER:-} » (server.conf) n'existe pas sur ce serveur."
+    local current="${SUDO_USER:-}"
+    if [[ -n "$current" && "$current" != "root" ]] && id "$current" &>/dev/null \
+        && confirm "Utiliser le compte de cette session SSH (« $current ») ?"; then
+        if grep -q '^SYS_USER=' "$CONFIG_FILE"; then
+            sed -i "s|^SYS_USER=.*|SYS_USER=\"${current}\"|" "$CONFIG_FILE"
+        else
+            echo "SYS_USER=\"${current}\"" >> "$CONFIG_FILE"
         fi
+        log OK "SYS_USER = ${current}"
+    else
+        log ERROR "Corrigez SYS_USER dans server.conf (compte SSH existant), puis relancez."
+        exit 1
     fi
 }
 
@@ -335,7 +328,8 @@ secure_ssh() {
     }
 
     local sshd_config="/etc/ssh/sshd_config"
-    local backup="${sshd_config}.bak.$(date +%Y%m%d%H%M%S)"
+    local backup
+    backup="${sshd_config}.bak.$(date +%Y%m%d%H%M%S)"
     cp "$sshd_config" "$backup"
 
     sed -i -E 's/^#?[[:space:]]*PasswordAuthentication[[:space:]]+.*/PasswordAuthentication no/' "$sshd_config"
@@ -435,8 +429,9 @@ show_config() {
         # Masque les mots de passe
         grep -v 'PASS' "$CONFIG_FILE" | grep -v '^#' | grep -v '^$' | \
             sed 's/^/  /' | sed 's/="/ = /;s/"$//'
-        echo -e "  SYS_PASS  = ${YELLOW}[masqué]${RESET}"
-        echo -e "  DB_PASS   = ${YELLOW}[masqué]${RESET}"
+        grep -o '^[A-Z_]*PASS[A-Z_]*=' "$CONFIG_FILE" | tr -d '=' | while read -r k; do
+            echo -e "  ${k} = ${YELLOW}[masqué]${RESET}"
+        done
     else
         log WARN "Aucune configuration trouvée. Lancez d'abord la configuration initiale."
     fi
@@ -454,17 +449,17 @@ main() {
     # Configuration initiale si server.conf absent
     if [[ ! -f "$CONFIG_FILE" ]]; then
         collect_config
-        create_system_user
+        check_system_user
     else
         log INFO "Configuration existante détectée (server.conf)."
         if confirm "Reconfigurer depuis zéro ?"; then
             collect_config
-            create_system_user
+            check_system_user
         else
             # Cas d'un server.conf restauré (restore_server.sh prepare) sur un
-            # serveur neuf : le compte système peut ne pas exister encore, et
+            # serveur neuf : le compte système peut porter un autre nom, et
             # l'IP publique a pu changer.
-            create_system_user
+            check_system_user
             check_server_ip
         fi
     fi

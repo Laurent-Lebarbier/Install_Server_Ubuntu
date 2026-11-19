@@ -11,11 +11,11 @@
 
 DOMAIN="exemple.fr"
 HOSTNAME_MAIL="mail.exemple.fr"
-SYS_USER="admin"
-SYS_PASS="mot_de_passe_système_min_12_caracteres"
-DB_NAME="admin_db"
-DB_USER="admin"
-DB_PASS="mot_de_passe_mariadb"
+# Compte SSH existant (non créé par les scripts, aucun mot de passe système)
+SYS_USER="ubuntu"
+# Compte administrateur MariaDB (aucune base créée par install_lamp.sh)
+DB_USER="ubuntu"
+DB_PASS="mot_de_passe_mariadb_min_12_caracteres"
 ADMIN_EMAIL="admin@exemple.fr"
 SERVER_IP="203.0.113.10"
 
@@ -23,9 +23,12 @@ SERVER_IP="203.0.113.10"
 # de la base de messagerie virtuelle (vmail) :
 VMAIL_DB_PASS="mot_de_passe_genere_aleatoirement"
 
+# Ajoutée automatiquement par install_ftp.sh (mot de passe du compte FTP) :
+FTP_PASS="mot_de_passe_genere_aleatoirement"
+
 # Ajoutées automatiquement par install_wordpress.sh :
-WP_DB_NAME="admin_db_wp"
-WP_DB_USER="admin_wp"
+WP_DB_NAME="ubuntu_wp"
+WP_DB_USER="ubuntu_wp"
 WP_DB_PASS="mot_de_passe_genere_aleatoirement"
 WP_ADMIN_USER="wpadmin"
 WP_ADMIN_PASS="mot_de_passe_genere_aleatoirement"

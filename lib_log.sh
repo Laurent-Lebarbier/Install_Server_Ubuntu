@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # lib_log.sh — Journal d'installation (sourcé par install.sh, install_*.sh,
 # restore_server.sh)
 #

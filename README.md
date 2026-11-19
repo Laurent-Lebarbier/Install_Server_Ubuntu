@@ -78,10 +78,11 @@ Le script vous pose une série de questions au démarrage :
 - **Rôle** : `[1]` web + mail (VPS), `[2]` cloud (dédié Nextcloud + Immich) ou
   `[3]` complet (un seul dédié qui fait tout)
 - **Nom de domaine** (ex : `mondomaine.fr` — le même sur les deux serveurs)
-- **Nom d'utilisateur système** : laisser **`ubuntu`** (valeur par défaut) — le compte et sa clé SSH
-  ne sont pas modifiés, il reçoit juste les droits sudo s'il ne les a pas
-- **Mot de passe** (min. 12 caractères)
-- **Nom de la base de données** MariaDB
+- **Compte système** : le compte avec lequel vous êtes connecté en SSH par clé (détecté
+  automatiquement, ex : **`ubuntu`**). Aucun compte ni mot de passe système n'est créé ou modifié
+- **Compte MariaDB** : nom d'utilisateur (par défaut le même que le compte système) et
+  mot de passe (min. 12 caractères). **Aucune base n'est créée** : le compte a tous les droits
+  et sert à créer vos bases (phpMyAdmin ou ligne de commande)
 - **E-mail administrateur**
 - **IP publique** du serveur (détectée automatiquement)
 
@@ -113,8 +114,8 @@ Pour lancer sans journal : `INSTALL_NO_LOG=1 sudo bash install.sh`.
 
 - Vérifie les droits root et la version Ubuntu
 - Demande le **rôle** du serveur : **web + mail** (VPS) ou **cloud** (dédié Nextcloud + Immich)
-- Recueille la configuration (domaine, utilisateur, mot de passe…)
-- Crée l'utilisateur système avec droits sudo
+- Recueille la configuration (domaine, compte SSH existant, compte MariaDB…)
+- Vérifie que le compte système existe (aucune création, aucun mot de passe système)
 - Présente un **menu interactif** pour choisir les composants à installer (adapté au rôle :
   en rôle cloud, pas de mail, FTP ni WordPress)
 
@@ -138,7 +139,8 @@ Ouvre uniquement les ports nécessaires :
 ### `install_lamp.sh` — Stack LAMP
 
 - Apache avec modules `rewrite`, `ssl`, `headers`, `deflate`
-- MariaDB sécurisé + création de la base et de l'utilisateur
+- MariaDB sécurisé + création d'un compte administrateur (utilisateur + mot de passe,
+  sans base de données)
 - PHP avec extensions : curl, gd, intl, imap, mbstring, xml, zip, apcu, bcmath
 - phpMyAdmin (accessible via `https://votre-domaine.fr/phpmyadmin`)
 - Certificat SSL Let's Encrypt avec redirection HTTP → HTTPS automatique
@@ -208,13 +210,15 @@ privée d'OpenDKIM. Voir [La clé DKIM](#la-clé-dkim).
 - **Pure-FTPd** : FTP avec chroot et mode passif (ports 40000-50000)
 - **SFTP** via OpenSSH : accès sécurisé, écriture uniquement dans `/uploads`
 - Utilise un compte système dédié (`<SYS_USER>_ftp`), distinct du compte admin
+- Mot de passe FTP généré aléatoirement, affiché en fin d'installation et sauvegardé
+  dans `server.conf` (`FTP_PASS`)
 
 ### `install_wordpress.sh` — Installation de WordPress
 
 Installe WordPress sur le VirtualHost du domaine (nécessite `install_lamp.sh` au préalable) :
 
 - **WP-CLI** installé automatiquement
-- Base de données MariaDB dédiée (`<DB_NAME>_wp`), distincte de la base du site "vitrine"
+- Base de données MariaDB dédiée (`<DB_USER>_wp`) avec son propre compte
 - Téléchargement + configuration automatique (`wp-config.php`, clés de sécurité uniques)
 - Création du compte administrateur WordPress (mot de passe généré aléatoirement,
   affiché en fin d'installation et sauvegardé dans `server.conf`)

@@ -67,7 +67,8 @@ if [[ "$EUID" -ne 0 ]]; then
     echo -e "${RED}Ce script doit être exécuté en tant que root.${RESET}"; exit 1
 fi
 
-readonly CONFIG_FILE="$(dirname "$0")/server.conf"
+CONFIG_FILE="$(dirname "$0")/server.conf"
+readonly CONFIG_FILE
 if [[ ! -f "$CONFIG_FILE" ]]; then
     log ERROR "server.conf introuvable. Lancez d'abord install.sh."
     exit 1
@@ -77,8 +78,7 @@ source "$CONFIG_FILE"
 
 log STEP "Installation de la stack LAMP"
 log INFO "Domaine    : $DOMAIN"
-log INFO "Utilisateur: $DB_USER"
-log INFO "Base de données : $DB_NAME"
+log INFO "Compte MariaDB : $DB_USER"
 
 # ---------------------------------------------------------------------------
 # 1. Mise à jour & dépendances
@@ -91,7 +91,7 @@ apt-get install -y -qq curl wget gnupg2 software-properties-common ca-certificat
 # 2. Apache
 # ---------------------------------------------------------------------------
 log STEP "Installation d'Apache"
-if ! dpkg -l apache2 &>/dev/null; then
+if ! dpkg-query -W -f='${Status}' apache2 2>/dev/null | grep -q 'install ok installed'; then
     apt-get install -y apache2
 fi
 # Activer les modules essentiels
@@ -103,7 +103,7 @@ log OK "Apache installé et démarré."
 # 3. MariaDB
 # ---------------------------------------------------------------------------
 log STEP "Installation de MariaDB"
-if ! dpkg -l mariadb-server &>/dev/null; then
+if ! dpkg-query -W -f='${Status}' mariadb-server 2>/dev/null | grep -q 'install ok installed'; then
     apt-get install -y mariadb-server mariadb-client
 fi
 systemctl enable --now mariadb
@@ -141,13 +141,24 @@ mysql -e "DROP DATABASE IF EXISTS test;"
 mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
 mysql -e "FLUSH PRIVILEGES;"
 
-# Création de la base et de l'utilisateur
-log INFO "Création de la base de données '$DB_NAME' et de l'utilisateur '$DB_USER'..."
-mysql -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
-mysql -e "GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';"
+# Compte administrateur MariaDB (utilisateur + mot de passe, AUCUNE base créée)
+# - ALTER USER après CREATE USER IF NOT EXISTS : sinon, à la relance, le mot
+#   de passe d'un compte déjà existant n'est pas mis à jour.
+# - Les apostrophes du mot de passe sont doublées (échappement SQL).
+# - Droits sur toutes les bases (*.*) : le compte sert à créer/gérer les
+#   bases soi-même (phpMyAdmin, ligne de commande).
+if [[ -z "${DB_USER:-}" || -z "${DB_PASS:-}" ]]; then
+    log ERROR "DB_USER / DB_PASS absents de server.conf — relancez la configuration d'install.sh."
+    exit 1
+fi
+log INFO "Création du compte MariaDB '$DB_USER' (sans base de données)..."
+DB_PASS_SQL="${DB_PASS//\'/\'\'}"
+mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';"
+mysql -e "ALTER USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';"
+mysql -e "GRANT ALL PRIVILEGES ON *.* TO '${DB_USER}'@'localhost' WITH GRANT OPTION;"
 mysql -e "FLUSH PRIVILEGES;"
-log OK "Base de données et utilisateur créés."
+unset DB_PASS_SQL
+log OK "Compte MariaDB '$DB_USER' prêt (aucune base créée)."
 
 # ---------------------------------------------------------------------------
 # 4. PHP
@@ -261,21 +272,24 @@ log OK "VirtualHost pour $DOMAIN activé."
 # 6. phpMyAdmin
 # ---------------------------------------------------------------------------
 log STEP "Installation de phpMyAdmin"
-if ! dpkg -l phpmyadmin &>/dev/null; then
+if ! dpkg-query -W -f='${Status}' phpmyadmin 2>/dev/null | grep -q 'install ok installed'; then
     # Installation non-interactive
     # Note : pas de "phpmyadmin/mysql/admin-pass" ici — root@localhost reste
     # en authentification unix_socket (voir plus haut). dbconfig-common
     # s'exécute en tant que root pendant la postinst du paquet et se
     # connecte via le socket local sans mot de passe, comme prévu.
+    # Mot de passe du compte interne « phpmyadmin » (base de configuration) :
+    # aléatoire, il ne sert jamais à se connecter — on se connecte avec DB_USER.
+    PMA_PASS=$(openssl rand -base64 20 | tr -d '+/=' | head -c 24)
     debconf-set-selections <<< "phpmyadmin phpmyadmin/dbconfig-install boolean true"
-    debconf-set-selections <<< "phpmyadmin phpmyadmin/app-password-confirm password ${DB_PASS}"
-    debconf-set-selections <<< "phpmyadmin phpmyadmin/mysql/app-pass password ${DB_PASS}"
+    debconf-set-selections <<< "phpmyadmin phpmyadmin/app-password-confirm password ${PMA_PASS}"
+    debconf-set-selections <<< "phpmyadmin phpmyadmin/mysql/app-pass password ${PMA_PASS}"
     debconf-set-selections <<< "phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2"
     DEBIAN_FRONTEND=noninteractive apt-get install -y phpmyadmin
 fi
 phpenmod mbstring
-# Lien symbolique si absent
-if [[ ! -f /etc/apache2/conf-available/phpmyadmin.conf ]]; then
+# Lien symbolique si absent (-e : un lien déjà présent ne fait plus échouer ln)
+if [[ ! -e /etc/apache2/conf-available/phpmyadmin.conf ]]; then
     ln -s /etc/phpmyadmin/apache.conf /etc/apache2/conf-available/phpmyadmin.conf
 fi
 a2enconf phpmyadmin
@@ -325,5 +339,4 @@ log INFO "Renouvellement automatique : certbot renew --quiet (géré par systemd
 log STEP "Installation LAMP terminée"
 echo -e "  Site web     : ${GREEN}https://${DOMAIN}${RESET}"
 echo -e "  phpMyAdmin   : ${GREEN}https://${DOMAIN}/phpmyadmin${RESET}"
-echo -e "  Utilisateur  : ${BOLD}${DB_USER}${RESET}"
-echo -e "  Base de données : ${BOLD}${DB_NAME}${RESET}"
+echo -e "  Compte MariaDB : ${BOLD}${DB_USER}${RESET} (aucune base créée)"

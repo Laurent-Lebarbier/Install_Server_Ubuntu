@@ -71,7 +71,8 @@ if [[ "$EUID" -ne 0 ]]; then
     echo -e "${RED}Ce script doit être exécuté en tant que root.${RESET}"; exit 1
 fi
 
-readonly CONFIG_FILE="$(dirname "$0")/server.conf"
+CONFIG_FILE="$(dirname "$0")/server.conf"
+readonly CONFIG_FILE
 if [[ ! -f "$CONFIG_FILE" ]]; then
     log ERROR "server.conf introuvable. Lancez d'abord install.sh."; exit 1
 fi
@@ -80,7 +81,7 @@ source "$CONFIG_FILE"
 
 readonly FTP_BASE_DIR="/home/ftpusers"
 # Compte FTP/SFTP dédié, DISTINCT du compte admin système ($SYS_USER).
-# $SYS_USER a un accès sudo + shell bash (créé par install.sh) : le
+# $SYS_USER a un accès sudo + shell bash (compte SSH existant) : le
 # Match User plus bas force ForceCommand internal-sftp, ce qui couperait
 # tout accès shell SSH normal si on l'appliquait au même compte.
 readonly FTP_USER="${SYS_USER}_ftp"
@@ -126,10 +127,17 @@ log STEP "Création de l'utilisateur virtuel Pure-FTPd"
 # Supprime l'ancien utilisateur virtuel s'il existe
 pure-pw show "$FTP_USER" &>/dev/null && pure-pw userdel "$FTP_USER" || true
 
+# Mot de passe FTP : plus de mot de passe système à réutiliser (connexion
+# SSH par clé). Repris de server.conf s'il existe (FTP_PASS, ou l'ancien
+# SYS_PASS d'une installation précédente), sinon généré et sauvegardé.
+if [[ -z "${FTP_PASS:-}" ]]; then
+    FTP_PASS="${SYS_PASS:-$(openssl rand -base64 18 | tr -d '+/=' | head -c 20)}"
+    echo "FTP_PASS=\"${FTP_PASS}\"" >> "$CONFIG_FILE"
+fi
+
 # Création de l'utilisateur virtuel avec son mot de passe
-# (même mot de passe que le compte système $SYS_USER, par simplicité —
-# changez-le ensuite avec : pure-pw passwd FTP_USER)
-echo -e "${SYS_PASS}\n${SYS_PASS}" | \
+# (changez-le ensuite avec : pure-pw passwd FTP_USER -m)
+printf '%s\n%s\n' "$FTP_PASS" "$FTP_PASS" | \
     pure-pw useradd "$FTP_USER" \
         -u "$FTP_USER" \
         -d "$FTP_HOME" \
@@ -249,7 +257,7 @@ echo -e "  ${BOLD}Pure-FTPd (FTPS)${RESET}"
 echo -e "  Hôte        : ${GREEN}${SERVER_IP}${RESET} ou ${GREEN}ftp.${DOMAIN}${RESET}"
 echo -e "  Port        : ${BOLD}21${RESET} (FTP) — mode passif : 40000-50000"
 echo -e "  Utilisateur : ${BOLD}${FTP_USER}${RESET} (compte dédié, distinct de l'admin ${SYS_USER})"
-echo -e "  Mot de passe: ${YELLOW}(même que le compte système $SYS_USER, changez-le avec : pure-pw passwd ${FTP_USER})${RESET}"
+echo -e "  Mot de passe: ${YELLOW}${FTP_PASS}${RESET}  (FTP_PASS dans server.conf — changez-le avec : pure-pw passwd ${FTP_USER} -m)"
 echo -e "  Répertoire  : ${BOLD}${FTP_HOME}${RESET}"
 echo
 echo -e "  ${BOLD}SFTP (OpenSSH)${RESET}"

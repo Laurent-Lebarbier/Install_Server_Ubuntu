@@ -7,8 +7,8 @@
 #
 #  Installe WordPress sur le VirtualHost du domaine (créé par install_lamp.sh) :
 #    - WP-CLI
-#    - Base de données MariaDB dédiée (distincte de DB_NAME/DB_USER, le
-#      compte créé par install_lamp.sh pour un éventuel site "vitrine")
+#    - Base de données MariaDB dédiée, avec son propre compte (distinct
+#      de DB_USER, le compte administrateur créé par install_lamp.sh)
 #    - Téléchargement + configuration de WordPress (wp-config.php, clés de
 #      sécurité uniques générées automatiquement par WP-CLI)
 #    - Création du compte administrateur WordPress
@@ -70,7 +70,8 @@ if [[ "$EUID" -ne 0 ]]; then
     echo -e "${RED}Ce script doit être exécuté en tant que root.${RESET}"; exit 1
 fi
 
-readonly CONFIG_FILE="$(dirname "$0")/server.conf"
+CONFIG_FILE="$(dirname "$0")/server.conf"
+readonly CONFIG_FILE
 if [[ ! -f "$CONFIG_FILE" ]]; then
     log ERROR "server.conf introuvable. Lancez d'abord install.sh."; exit 1
 fi
@@ -125,15 +126,18 @@ WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-$ADMIN_EMAIL}"
 # Mot de passe admin WordPress : généré aléatoirement, affiché en fin de
 # script et sauvegardé dans server.conf (même logique que VMAIL_DB_PASS
 # dans install_mail.sh)
-WP_ADMIN_PASS=$(openssl rand -base64 18 | tr -d '+/=' | head -c 20)
+# Repris de server.conf s'il existe : sinon, à la relance, le mot de passe
+# affiché était un nouveau mot de passe jamais appliqué (site déjà installé).
+WP_ADMIN_PASS="${WP_ADMIN_PASS:-$(openssl rand -base64 18 | tr -d '+/=' | head -c 20)}"
 
 # ---------------------------------------------------------------------------
-# 3. Base de données dédiée (distincte de DB_NAME/DB_USER du site "vitrine"
-#    éventuellement déjà créé par install_lamp.sh)
+# 3. Base de données dédiée à WordPress, avec son propre compte (distinct
+#    du compte administrateur MariaDB DB_USER créé par install_lamp.sh)
 # ---------------------------------------------------------------------------
 log STEP "Création de la base de données WordPress"
-WP_DB_NAME="${DB_NAME}_wp"
-WP_DB_USER="${DB_USER}_wp"
+# Noms repris de server.conf s'ils existent (installation précédente)
+WP_DB_NAME="${WP_DB_NAME:-${DB_USER}_wp}"
+WP_DB_USER="${WP_DB_USER:-${DB_USER}_wp}"
 # Réutilisé depuis server.conf si déjà présent (voir même correctif que
 # VMAIL_DB_PASS dans install_mail.sh — CREATE USER IF NOT EXISTS ne met
 # pas à jour le mot de passe d'un utilisateur MySQL déjà existant).
@@ -186,7 +190,9 @@ cd "$VHOST_DIR"
 # 5. Téléchargement et configuration de WordPress
 # ---------------------------------------------------------------------------
 log STEP "Téléchargement de WordPress (dernière version, FR)"
-sudo -u www-data wp core download --path="$VHOST_DIR" --locale=fr_FR
+# --force : sinon échec (set -e) si l'on a choisi de continuer sur une
+# installation existante à l'étape 4
+sudo -u www-data wp core download --path="$VHOST_DIR" --locale=fr_FR --force
 log OK "WordPress téléchargé."
 
 log STEP "Génération de wp-config.php"
@@ -196,6 +202,7 @@ sudo -u www-data wp config create \
     --dbuser="$WP_DB_USER" \
     --dbpass="$WP_DB_PASS" \
     --dbhost="localhost" \
+    --force \
     --extra-php <<'PHP'
 define('DISALLOW_FILE_EDIT', true);
 define('WP_AUTO_UPDATE_CORE', 'minor');

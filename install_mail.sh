@@ -71,7 +71,8 @@ if [[ "$EUID" -ne 0 ]]; then
     echo -e "${RED}Ce script doit être exécuté en tant que root.${RESET}"; exit 1
 fi
 
-readonly CONFIG_FILE="$(dirname "$0")/server.conf"
+CONFIG_FILE="$(dirname "$0")/server.conf"
+readonly CONFIG_FILE
 if [[ ! -f "$CONFIG_FILE" ]]; then
     log ERROR "server.conf introuvable. Lancez d'abord install.sh."; exit 1
 fi
@@ -627,12 +628,17 @@ log STEP "Création du premier compte mail"
 # Insertion du domaine
 mysql vmail -e "INSERT IGNORE INTO domains (domain) VALUES ('${DOMAIN}');"
 
-# Hachage du mot de passe avec doveadm
-MAIL_PASS_HASH=$(doveadm pw -s SHA512-CRYPT -p "${SYS_PASS}")
-
-# Compte admin@domaine
-mysql vmail -e "INSERT IGNORE INTO users (domain, email, password) \
-    VALUES ('${DOMAIN}', 'admin@${DOMAIN}', '${MAIL_PASS_HASH}');"
+# Mot de passe du compte admin@ : plus de mot de passe système à réutiliser
+# (connexion SSH par clé). Généré une fois et affiché ; un compte déjà
+# présent (relance du script) garde son mot de passe actuel.
+MAIL_ADMIN_NEW=0
+if [[ -z "$(mysql -N vmail -e "SELECT 1 FROM users WHERE email='admin@${DOMAIN}';")" ]]; then
+    MAIL_ADMIN_PASS="${MAIL_ADMIN_PASS:-$(openssl rand -base64 18 | tr -d '+/=' | head -c 20)}"
+    MAIL_PASS_HASH=$(doveadm pw -s SHA512-CRYPT -p "${MAIL_ADMIN_PASS}")
+    mysql vmail -e "INSERT INTO users (domain, email, password) \
+        VALUES ('${DOMAIN}', 'admin@${DOMAIN}', '${MAIL_PASS_HASH}');"
+    MAIL_ADMIN_NEW=1
+fi
 
 # Alias postmaster → admin (requis par les RFC)
 mysql vmail -e "INSERT IGNORE INTO aliases (source, destination) \
@@ -651,9 +657,6 @@ log OK "Services démarrés."
 # ---------------------------------------------------------------------------
 # 12. Enregistrements DNS à configurer chez OVH / hébergeur
 # ---------------------------------------------------------------------------
-DKIM_TXT=$(grep -v '^;' "${DKIM_DIR}/mail.txt" | tr -d '\n' | sed 's/\s\+/ /g' | \
-           sed 's/.*(\(.*\))/\1/' | tr -d '"' | tr -d ' ')
-
 log STEP "Enregistrements DNS à ajouter chez votre hébergeur (OVH, etc.)"
 echo -e "\n${CYAN}${BOLD}"
 echo "  ╔══════════════════════════════════════════════════════════════════╗"
@@ -721,7 +724,11 @@ fi
 # ---------------------------------------------------------------------------
 log STEP "Serveur mail configuré"
 echo -e "  Compte mail   : ${GREEN}admin@${DOMAIN}${RESET}"
-echo -e "  Mot de passe  : ${YELLOW}(même que le compte système $SYS_USER)${RESET}"
+if (( MAIL_ADMIN_NEW )); then
+    echo -e "  Mot de passe  : ${YELLOW}${MAIL_ADMIN_PASS}${RESET}  (notez-le — changeable via manage_mail.sh)"
+else
+    echo -e "  Mot de passe  : ${YELLOW}(inchangé — compte déjà existant ; changeable via manage_mail.sh)${RESET}"
+fi
 echo -e "  IMAP (SSL)    : ${BOLD}mail.${DOMAIN}:993${RESET}"
 echo -e "  SMTP (STARTTLS): ${BOLD}mail.${DOMAIN}:587${RESET}"
 echo -e "  Logs mail     : ${BOLD}sudo tail -f /var/log/mail.log${RESET}"
